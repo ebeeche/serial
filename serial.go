@@ -40,15 +40,21 @@ type CommPort struct {
 ********************************   BASIC FUNCTIONS  ****************************************
 *******************************************************************************************/
 
-func New() *CommPort {
-	// Create new file
-	file, err := os.OpenFile(fmt.Sprintf("log_serial_%d.txt", time.Now().Unix()), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalln("Failed to open log file", ":", err)
+func New(logToFile bool) *CommPort {
+	var writer io.Writer
+	if logToFile {
+		// Create new file
+		file, err := os.OpenFile(fmt.Sprintf("log_serial_%d.txt", time.Now().Unix()), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalln("Failed to open log file", ":", err)
+		}
+		writer = io.MultiWriter(file, os.Stdout)
+	} else {
+		writer = io.Writer(os.Stdout)
 	}
-	multi := io.MultiWriter(file, os.Stdout)
+
 	return &CommPort{
-		logger:  log.New(multi, "PREFIX: ", log.Ldate|log.Ltime),
+		logger:  log.New(writer, "PREFIX: ", log.Ldate|log.Ltime),
 		eol:     EOL_DEFAULT,
 		buff:    bytes.NewBuffer(make([]uint8, 256)),
 		Verbose: true,
