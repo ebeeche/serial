@@ -5,8 +5,16 @@ Golang package for serial port
 [![GoDoc](http://godoc.org/github.com/argandas/serial?status.svg)](http://godoc.org/github.com/argandas/serial)
 
 A Go package that allow you to read and write from the serial port.
+Forked from [github.com/argandas/serial](https://github.com/argandas/serial)
 
-This is a forked repo written by [@tarm](github.com/tarm).
+## So, what's different from the original repository?
+* *WaitForRegexTimeout:* Added a delay before reading each line from  serial port (SimCom SIM800L compatibility)
+* Renamed SerialPort to CommPort to fix a name conflict (according to GoLand IDE)
+* Fixed redundant variable declarations
+* Removed unreachable code
+* Changed case of error messages to comply with Go's case convention
+* Spelling errors
+
 
 ## Usage
 
@@ -15,16 +23,19 @@ package main
  
 import (
 	"time"
-	"github.com/argandas/serial"
+	"github.com/ebeeche/serial"
 )
 
 func main() {
     sp := serial.New()
-    err := sp.Open("COM1", 9600)
+    
+    err := sp.Open("/dev/cu.usbserial", 115200)
     if err != nil {
         panic(err)
     }
+    
     defer sp.Close()
+    
     sp.Println("AT")
     sp.WaitForRegexTimeout("OK.*", time.Second * 10)
 }
@@ -36,5 +47,5 @@ By default the returned serial port reads in blocking mode. Which means `Read()`
 
 ```go
 	sp := serial.New()
-    err := sp.Open("COM1", 9600, time.Second * 5)
+    err := sp.Open("/dev/cu.usbserial", 115200, time.Second * 5)
 ```

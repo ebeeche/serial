@@ -12,24 +12,27 @@ import (
 )
 
 // End of line character (AKA EOL), newline character (ASCII 10, CR, '\n'). is used by default.
-const EOL_DEFAULT byte = '\n'
+const (
+	EOL_DEFAULT byte = '\n'
+	CMD_DELAY        = time.Millisecond * 50
+)
 
 /*******************************************************************************************
 *******************************   TYPE DEFINITIONS 	****************************************
 *******************************************************************************************/
 
-type SerialPort struct {
-	port          io.ReadWriteCloser
-	name          string
-	baud          int
-	eol           uint8
-	rxChar        chan byte
-	closeReqChann chan bool
-	closeAckChann chan error
-	buff          *bytes.Buffer
-	logger        *log.Logger
-	portIsOpen    bool
-	Verbose       bool
+type CommPort struct {
+	port         io.ReadWriteCloser
+	name         string
+	baud         int
+	eol          uint8
+	rxChar       chan byte
+	closeReqChan chan bool
+	closeAckChan chan error
+	buff         *bytes.Buffer
+	logger       *log.Logger
+	portIsOpen   bool
+	Verbose      bool
 	// openPort      func(port string, baud int) (io.ReadWriteCloser, error)
 }
 
@@ -37,14 +40,14 @@ type SerialPort struct {
 ********************************   BASIC FUNCTIONS  ****************************************
 *******************************************************************************************/
 
-func New() *SerialPort {
+func New() *CommPort {
 	// Create new file
 	file, err := os.OpenFile(fmt.Sprintf("log_serial_%d.txt", time.Now().Unix()), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalln("Failed to open log file", ":", err)
 	}
 	multi := io.MultiWriter(file, os.Stdout)
-	return &SerialPort{
+	return &CommPort{
 		logger:  log.New(multi, "PREFIX: ", log.Ldate|log.Ltime),
 		eol:     EOL_DEFAULT,
 		buff:    bytes.NewBuffer(make([]uint8, 256)),
@@ -52,7 +55,7 @@ func New() *SerialPort {
 	}
 }
 
-func (sp *SerialPort) Open(name string, baud int, timeout ...time.Duration) error {
+func (sp *CommPort) Open(name string, baud int, timeout ...time.Duration) error {
 	// Check if port is open
 	if sp.portIsOpen {
 		return fmt.Errorf("\"%s\" is already open", name)
@@ -64,9 +67,9 @@ func (sp *SerialPort) Open(name string, baud int, timeout ...time.Duration) erro
 	// Open serial port
 	comPort, err := openPort(name, baud, readTimeout)
 	if err != nil {
-		return fmt.Errorf("Unable to open port \"%s\" - %s", name, err)
+		return fmt.Errorf("unable to open port \"%s\" - %s", name, err)
 	}
-	// Open port succesfull
+	// Open port successful
 	sp.name = name
 	sp.baud = baud
 	sp.port = comPort
@@ -83,7 +86,7 @@ func (sp *SerialPort) Open(name string, baud int, timeout ...time.Duration) erro
 }
 
 // This method close the current Serial Port.
-func (sp *SerialPort) Close() error {
+func (sp *CommPort) Close() error {
 	if sp.portIsOpen {
 		sp.portIsOpen = false
 		close(sp.rxChar)
@@ -94,7 +97,7 @@ func (sp *SerialPort) Close() error {
 }
 
 // This method prints data trough the serial port.
-func (sp *SerialPort) Write(data []byte) (n int, err error) {
+func (sp *CommPort) Write(data []byte) (n int, err error) {
 	if sp.portIsOpen {
 		n, err = sp.port.Write(data)
 		if err != nil {
@@ -103,13 +106,13 @@ func (sp *SerialPort) Write(data []byte) (n int, err error) {
 			sp.log("Tx >> %s", string(data))
 		}
 	} else {
-		err = fmt.Errorf("Serial port is not open")
+		err = fmt.Errorf("serial port is not open")
 	}
 	return
 }
 
 // This method prints data trough the serial port.
-func (sp *SerialPort) Print(str string) error {
+func (sp *CommPort) Print(str string) error {
 	if sp.portIsOpen {
 		_, err := sp.port.Write([]byte(str))
 		if err != nil {
@@ -118,19 +121,19 @@ func (sp *SerialPort) Print(str string) error {
 			sp.log("Tx >> %s", str)
 		}
 	} else {
-		return fmt.Errorf("Serial port is not open")
+		return fmt.Errorf("serial port is not open")
 	}
 	return nil
 }
 
 // Prints data to the serial port as human-readable ASCII text followed by a carriage return character
 // (ASCII 13, CR, '\r') and a newline character (ASCII 10, LF, '\n').
-func (sp *SerialPort) Println(str string) error {
+func (sp *CommPort) Println(str string) error {
 	return sp.Print(str + "\r\n")
 }
 
 // Printf formats according to a format specifier and print data trough the serial port.
-func (sp *SerialPort) Printf(format string, args ...interface{}) error {
+func (sp *CommPort) Printf(format string, args ...interface{}) error {
 	str := format
 	if len(args) > 0 {
 		str = fmt.Sprintf(format, args...)
@@ -139,11 +142,11 @@ func (sp *SerialPort) Printf(format string, args ...interface{}) error {
 }
 
 //This method send a binary file trough the serial port. If EnableLog is active then this method will log file related data.
-func (sp *SerialPort) SendFile(filepath string) error {
+func (sp *CommPort) SendFile(filepath string) error {
 	// Aux Vars
 	sentBytes := 0
 	q := 512
-	data := []byte{}
+	var data []byte
 	// Read file
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
@@ -176,13 +179,12 @@ func (sp *SerialPort) SendFile(filepath string) error {
 }
 
 // Read the first byte of the serial buffer.
-func (sp *SerialPort) Read() (byte, error) {
+func (sp *CommPort) Read() (byte, error) {
 	if sp.portIsOpen {
 		return sp.buff.ReadByte()
 	} else {
-		return 0x00, fmt.Errorf("Serial port is not open")
+		return 0x00, fmt.Errorf("serial port is not open")
 	}
-	return 0x00, nil
 }
 
 // Read first available line from serial port buffer.
@@ -190,7 +192,7 @@ func (sp *SerialPort) Read() (byte, error) {
 // Line is delimited by the EOL character, newline character (ASCII 10, LF, '\n') is used by default.
 //
 // The text returned from ReadLine does not include the line end ("\r\n" or '\n').
-func (sp *SerialPort) ReadLine() (string, error) {
+func (sp *CommPort) ReadLine() (string, error) {
 	if sp.portIsOpen {
 		line, err := sp.buff.ReadString(sp.eol)
 		if err != nil {
@@ -199,31 +201,31 @@ func (sp *SerialPort) ReadLine() (string, error) {
 			return removeEOL(line), nil
 		}
 	} else {
-		return "", fmt.Errorf("Serial port is not open")
+		return "", fmt.Errorf("serial port is not open")
 	}
-	return "", nil
 }
 
 // Wait for a defined regular expression for a defined amount of time.
-func (sp *SerialPort) WaitForRegexTimeout(exp string, timeout time.Duration) (string, error) {
+func (sp *CommPort) WaitForRegexTimeout(exp string, timeout time.Duration) (string, error) {
 
 	if sp.portIsOpen {
 		//Decode received data
 		timeExpired := false
 
-		regExpPatttern := regexp.MustCompile(exp)
+		regExpPattern := regexp.MustCompile(exp)
 
 		//Timeout structure
 		c1 := make(chan string, 1)
 		go func() {
 			sp.log("INF >> Waiting for RegExp: \"%s\"", exp)
-			result := []string{}
+			var result []string
 			for !timeExpired {
+				time.Sleep(CMD_DELAY)
 				line, err := sp.ReadLine()
 				if err != nil {
 					// Do nothing
 				} else {
-					result = regExpPatttern.FindAllString(line, -1)
+					result = regExpPattern.FindAllString(line, -1)
 					if len(result) > 0 {
 						c1 <- result[0]
 						break
@@ -239,21 +241,20 @@ func (sp *SerialPort) WaitForRegexTimeout(exp string, timeout time.Duration) (st
 		case <-time.After(timeout):
 			timeExpired = true
 			sp.log("INF >> Unable to match RegExp: \"%s\"", exp)
-			return "", fmt.Errorf("Timeout expired")
+			return "", fmt.Errorf("timeout expired")
 		}
 	} else {
-		return "", fmt.Errorf("Serial port is not open")
+		return "", fmt.Errorf("serial port is not open")
 	}
-	return "", nil
 }
 
 // Available return the total number of available unread bytes on the serial buffer.
-func (sp *SerialPort) Available() int {
+func (sp *CommPort) Available() int {
 	return sp.buff.Len()
 }
 
 // Change end of line character (AKA EOL), newline character (ASCII 10, LF, '\n') is used by default.
-func (sp *SerialPort) EOL(c byte) {
+func (sp *CommPort) EOL(c byte) {
 	sp.eol = c
 }
 
@@ -261,7 +262,7 @@ func (sp *SerialPort) EOL(c byte) {
 ******************************   PRIVATE FUNCTIONS  ****************************************
 *******************************************************************************************/
 
-func (sp *SerialPort) readSerialPort() {
+func (sp *CommPort) readSerialPort() {
 	rxBuff := make([]byte, 256)
 	for sp.portIsOpen {
 		n, _ := sp.port.Read(rxBuff)
@@ -275,7 +276,7 @@ func (sp *SerialPort) readSerialPort() {
 	}
 }
 
-func (sp *SerialPort) processSerialPort() {
+func (sp *CommPort) processSerialPort() {
 	screenBuff := make([]byte, 0)
 	var lastRxByte byte
 	for {
@@ -297,7 +298,7 @@ func (sp *SerialPort) processSerialPort() {
 	}
 }
 
-func (sp *SerialPort) log(format string, a ...interface{}) {
+func (sp *CommPort) log(format string, a ...interface{}) {
 	if sp.Verbose {
 		sp.logger.Printf(format, a...)
 	}
@@ -329,10 +330,10 @@ func posixTimeoutValues(readTimeout time.Duration) (vmin uint8, vtime uint8) {
 		// EOF on zero read
 		minBytesToRead = 0
 		// convert timeout to deciseconds as expected by VTIME
-		readTimeoutInDeci = (readTimeout.Nanoseconds() / 1e6 / 100)
+		readTimeoutInDeci = readTimeout.Nanoseconds() / 1e6 / 100
 		// capping the timeout
 		if readTimeoutInDeci < 1 {
-			// min possible timeout 1 Deciseconds (0.1s)
+			// min possible timeout 1 deciseconds (0.1s)
 			readTimeoutInDeci = 1
 		} else if readTimeoutInDeci > MAXUINT8 {
 			// max possible timeout is 255 deciseconds (25.5s)
